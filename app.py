@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import pandas as pd
-from value_betting_core import train_model, predict_match, calculate_ev, suggest_bet, fetch_live_odds
+from value_betting_core import fetch_live_odds, estimate_probabilities, calculate_ev, suggest_bet
 from config import BANKROLL
 
 st.title("Smart Bet Saver Dashboard")
@@ -12,8 +12,20 @@ if st.sidebar.button("Load Today's Matches"):
     try:
         live_df = fetch_live_odds()
         live_df['date'] = pd.to_datetime(live_df['date'])
+        live_df = estimate_probabilities(live_df)
+        live_df = live_df.apply(calculate_ev, axis=1)
+        
+        # Suggested bets
+        bets, stakes = [], []
+        for _, row in live_df.iterrows():
+            bet, stake = suggest_bet(row, BANKROLL)
+            bets.append(bet)
+            stakes.append(round(stake, 2))
+        live_df['Suggested Bet'] = bets
+        live_df['Stake'] = stakes
+        
         st.session_state['live_df'] = live_df
-        st.success("Live odds loaded!")
+        st.success("Live odds loaded and bets calculated!")
     except Exception as e:
         st.error(str(e))
 
@@ -32,25 +44,7 @@ if 'live_df' in st.session_state:
     if len(filtered_df) == 0:
         st.warning("No matches found for selected filters.")
     else:
-        # --- Train model ---
-        model, le_home, le_away = train_model("historical_data.csv")
-        
-        # --- Predict probabilities ---
-        filtered_df = predict_match(model, le_home, le_away, filtered_df)
-        
-        # --- EV calculation ---
-        filtered_df = filtered_df.apply(calculate_ev, axis=1)
-        
-        # --- Suggest bets ---
-        bets, stakes = [], []
-        for _, row in filtered_df.iterrows():
-            bet, stake = suggest_bet(row, BANKROLL)
-            bets.append(bet)
-            stakes.append(round(stake, 2))
-        filtered_df['Suggested Bet'] = bets
-        filtered_df['Stake'] = stakes
-        
-        # --- Highlight highest EV ---
+        # Highlight highest EV
         def highlight_max(s):
             is_max = s == s.max()
             return ['background-color: lightgreen' if v else '' for v in is_max]
